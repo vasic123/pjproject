@@ -179,35 +179,41 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e)
     pjsua_call_get_info(call_id, &call_info);
 
     if (call_info.state == PJSIP_INV_STATE_DISCONNECTED) {
+    /* Stop all ringback for this call */
+    ring_stop(call_id);
 
-        /* Stop all ringback for this call */
-        ring_stop(call_id);
+    /* Cancel duration timer, if any */
+    if (app_config.call_data[call_id].timer.id != PJSUA_INVALID_ID) {
+        app_call_data *cd = &app_config.call_data[call_id];
+        pjsip_endpoint *endpt = pjsua_get_pjsip_endpt();
+        cd->timer.id = PJSUA_INVALID_ID;
+        pjsip_endpt_cancel_timer(endpt, &cd->timer);
+    }
 
-        /* Cancel duration timer, if any */
-        if (app_config.call_data[call_id].timer.id != PJSUA_INVALID_ID) {
-            app_call_data *cd = &app_config.call_data[call_id];
-            pjsip_endpoint *endpt = pjsua_get_pjsip_endpt();
+    /* Rewind play file when hangup automatically, 
+     * since file is not looped
+     */
+    if (app_config.auto_play_hangup)
+        pjsua_player_set_pos(app_config.wav_id, 0);
 
-            cd->timer.id = PJSUA_INVALID_ID;
-            pjsip_endpt_cancel_timer(endpt, &cd->timer);
-        }
+    PJ_LOG(3,(THIS_FILE, "Call %d is DISCONNECTED [reason=%d (%.*s)]", 
+              call_id,
+              call_info.last_status,
+              (int)call_info.last_status_text.slen,
+              call_info.last_status_text.ptr));
 
-        /* Rewind play file when hangup automatically, 
-         * since file is not looped
-         */
-        if (app_config.auto_play_hangup)
-            pjsua_player_set_pos(app_config.wav_id, 0);
+    if (call_id == current_call) {
+        find_next_call();
+    }
 
+    /* Add a delay before shutting down */
+    pj_thread_sleep(2000);
 
-        PJ_LOG(3,(THIS_FILE, "Call %d is DISCONNECTED [reason=%d (%.*s)]", 
-                  call_id,
-                  call_info.last_status,
-                  (int)call_info.last_status_text.slen,
-                  call_info.last_status_text.ptr));
-
-        if (call_id == current_call) {
-            find_next_call();
-        }
+    /* Shut down the application */
+    PJ_LOG(3,(THIS_FILE, "Shutting down after call disconnection..."));
+    pjsua_destroy();
+    exit(0);
+}
 
         /* Dump media state upon disconnected.
          * Now pjsua_media_channel_deinit() automatically log the call dump.
@@ -292,6 +298,20 @@ static void on_stream_destroyed(pjsua_call_id call_id,
                   "Call %d stream %d destroyed, dumping media stats..", 
                   call_id, stream_idx));
         log_call_dump(call_id);
+    }
+}
+
+static void on_call_tsx_state(pjsua_call_id call_id, pjsip_transaction *tsx, pjsip_event *e) {
+    /* Check if the transaction failed (e.g., 3xx, 4xx, 5xx, 6xx responses) */
+    if (tsx->status_code >= 300) { // Error codes
+        PJ_LOG(3, (THIS_FILE, "Call %d failed with status %d. Shutting down...", call_id, tsx->status_code));
+
+        /* Add a delay before shutting down */
+        pj_thread_sleep(2000);
+
+        /* Shut down the application */
+        pjsua_destroy();
+        exit(0);
     }
 }
 

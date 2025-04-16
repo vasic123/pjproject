@@ -1,59 +1,38 @@
-name: Build PJSUA
+name: CI Windows
+on: [push, pull_request]
 
-on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, synchronize, reopened]
+env:
+  CI_WIN_ARGS: -w 3 --shuffle
+  CI_MODE: --ci-mode
+  CI_RUNNER: python ${{ github.workspace }}/cirunner/cirunner.py -t 3600 -o ${{ github.workspace }}/artifacts --
 
 jobs:
+  # Основная сборка
   build-pjsua:
     runs-on: windows-latest
+    name: Build pjsua
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    # Установка зависимостей (OpenSSL, SWIG и др.)
-    - name: Install cirunner
+    - uses: actions/checkout@v4
+    
+    - name: Установка зависимостей
       run: |
         git clone --depth 1 https://github.com/pjsip/cirunner.git
         cirunner/installwindows.ps1
-      shell: powershell
-
-    - name: Get OpenSSL
-      run: |
-        Invoke-WebRequest -Uri "https://github.com/pjsip/third_party_libs/raw/main/openssl-1.1.1s-win.zip" -OutFile openssl.zip
-      shell: powershell
-
-    - name: Extract OpenSSL
-      run: |
-        Expand-Archive openssl.zip -DestinationPath openssl_build
-        cd openssl_build
-        Add-Content ..\openssl_dir.txt $pwd.Path
-      shell: powershell
-
-    # Настройка config_site.h для SSL и других опций
-    - name: Configure config_site.h
-      run: |
-        cd pjlib/include/pj
-        cp config_site_test.h config_site.h
-        Add-Content config_site.h "#define PJ_HAS_SSL_SOCK 1"
-        Add-Content config_site.h "#define PJ_SSL_SOCK_IMP PJ_SSL_SOCK_IMP_SCHANNEL"
-      shell: powershell
-
-    # Компиляция проекта с помощью MSBuild
-    - name: MSBuild
-      run: |
-        set /P OPENSSL_DIR=<openssl_dir.txt
-        call "%PROGRAMFILES%\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
-        set INCLUDE=%INCLUDE%;%OPENSSL_DIR%\include
-        set LIB=%LIB%;%OPENSSL_DIR%\lib
-        msbuild pjproject-vs14.sln /p:PlatformToolset=v143 /p:Configuration=Release /p:Platform=win32 /p:UseEnv=true
+        
+    - name: Сборка проекта
       shell: cmd
-
-    # Сохранение pjsua.exe как артефакта
-    - name: Upload pjsua.exe
+      run: |
+        call "%PROGRAMFILES%\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
+        msbuild pjproject-vs14.sln /p:Configuration=Release /p:Platform=win32
+        
+    - name: Поиск pjsua.exe
+      run: dir /s /b pjsua.exe
+        
+    - name: Загрузка артефактов
       uses: actions/upload-artifact@v4
       with:
-        name: pjsua-windows
-        path: pjsip-apps/bin/pjsua-i386-Win32-vc14-Release.exe
+        name: pjsua-binaries
+        path: |
+          pjsip-apps/bin/*.exe
+          pjsip-apps/bin/*.dll
+          pjsip/bin/*.exe

@@ -52,7 +52,6 @@ jobs:
     - name: MSBuild
       run: |
         set /P OPENSSL_DIR=<openssl_dir.txt
-@@ -52,12 +51,9 @@ jobs:
         msbuild pjproject-vs14.sln /p:PlatformToolset=v143 /p:Configuration=Release /p:Platform=win32 /p:UseEnv=true
       shell: cmd
 
